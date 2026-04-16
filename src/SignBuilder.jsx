@@ -770,7 +770,7 @@ export default function SignBuilder() {
 
   // Load saved icons from public/icons/ on mount
   useEffect(() => {
-    fetch('/api/icons')
+    fetch('/icons-manifest.json')
       .then(r => r.json())
       .then(async (icons) => {
         const loaded = await Promise.all(icons.map(async (ic) => {
@@ -785,7 +785,7 @@ export default function SignBuilder() {
 
   // Load saved fonts from public/fonts/ on mount
   useEffect(() => {
-    fetch('/api/fonts')
+    fetch('/fonts-manifest.json')
       .then(r => r.json())
       .then((fonts) => {
         const parsed = fonts.map((f) => {
