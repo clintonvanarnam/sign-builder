@@ -12,25 +12,75 @@ const SIGN_RATIOS = {
   "5:3": { label: "5 × 3 (Compact)", w: 5, h: 3 },
 };
 
-// Default layout, sizing, and typography per sign type
+// ── Sign type guidelines ──
+// Each sign type defines its complete default styling.
+// Edit these objects to set the rules for each sign type.
 const SIGN_DEFAULTS = {
   "27:5": {
+    // Layout
     columns: 3,
     columnRows: [1, 1, 1],
-    fontSize: 16,
-    arrowSize: 20,
-    arrowWeight: 400,
     gap: 4,
-    iconScale: 0.65,   // icon max-width as fraction of panel
+    iconScale: 0.65,
+
+    // Typography
+    fontFamily: "ABCMonumentGrotesk__400__normal",
+    fontWeight: 400,
+    fontStyle: "normal",
+    allCaps: true,
+    fontSize: 16,
+    arrowSize: 36,
+    arrowWeight: 100,
+
+    // Border
+    outerBorder: true,
+    borderWidth: 2,
+    borderColor: "#333333",
+    padding: 0,
+
+    // Panel defaults (applied to every new panel)
+    panelDefaults: {
+      bgColor: "#ffffff",
+      textColor: "#000000",
+      fontSize: 16,
+      arrowDir: "up",
+      arrowPosition: "right",
+      iconPosition: "left",
+      showBorder: true,
+    },
   },
   "5:3": {
+    // Layout
     columns: 2,
     columnRows: [2, 2],
+    gap: 4,
+    iconScale: 0.5,
+
+    // Typography
+    fontFamily: null,
+    fontWeight: 700,
+    fontStyle: "normal",
+    allCaps: true,
     fontSize: 13,
     arrowSize: 16,
     arrowWeight: 400,
-    gap: 4,
-    iconScale: 0.5,
+
+    // Border
+    outerBorder: true,
+    borderWidth: 2,
+    borderColor: "#333333",
+    padding: 0,
+
+    // Panel defaults
+    panelDefaults: {
+      bgColor: "#ffffff",
+      textColor: "#000000",
+      fontSize: 13,
+      arrowDir: "up",
+      arrowPosition: "right",
+      iconPosition: "left",
+      showBorder: true,
+    },
   },
 };
 
@@ -48,7 +98,9 @@ const ICON_TEXT_MAP = {
   "Museum": "NY STATE MUSEUM",
 };
 
-
+function getDefaults(ratio) {
+  return SIGN_DEFAULTS[ratio] || SIGN_DEFAULTS["27:5"];
+}
 
 function createDefaultPanel() {
   return {
@@ -154,31 +206,41 @@ function parseFontName(fileName) {
   return { family, variant: label, weight, style };
 }
 
-function createDefaultSign() {
-  const defaults = SIGN_DEFAULTS["27:5"];
+function createDefaultSign(ratio = "27:5") {
+  const defaults = getDefaults(ratio);
+  const pd = defaults.panelDefaults || {};
+  const totalPanels = (defaults.columnRows || [1, 1, 1]).reduce((a, b) => a + b, 0);
+  const panels = Array.from({ length: totalPanels }, (_, i) => ({
+    ...createDefaultPanel(),
+    id: i + 1,
+    text: "LABEL",
+    bgColor: pd.bgColor || "#ffffff",
+    textColor: pd.textColor || "#000000",
+    fontSize: pd.fontSize || defaults.fontSize || 16,
+    arrowDir: pd.arrowDir || "up",
+    arrowPosition: pd.arrowPosition || "right",
+    iconPosition: pd.iconPosition || "left",
+    showBorder: pd.showBorder ?? true,
+  }));
   return {
     id: Date.now(),
     name: "Sign Assembly",
-    ratio: "27:5",
-    fontFamily: DEFAULT_FONT,
-    fontWeight: 700,
-    fontStyle: "normal",
-    allCaps: true,
+    ratio,
+    fontFamily: defaults.fontFamily || DEFAULT_FONT,
+    fontWeight: defaults.fontWeight ?? 700,
+    fontStyle: defaults.fontStyle || "normal",
+    allCaps: defaults.allCaps ?? true,
     arrowSize: defaults.arrowSize,
     arrowWeight: defaults.arrowWeight || 400,
     columns: defaults.columns,
-    columnRows: [...defaults.columnRows],
-    panels: [
-      { ...createDefaultPanel(), id: 1, text: "AGENCY BUILDINGS 1 & 2", icon: "building", arrowDir: "up", bgColor: "#f0dca0", fontSize: defaults.fontSize },
-      { ...createDefaultPanel(), id: 2, text: "THE CAPITOL", icon: "building", arrowDir: "up", fontSize: defaults.fontSize },
-      { ...createDefaultPanel(), id: 3, text: "CONVENTION CENTER", icon: "info", arrowDir: "right", bgColor: "#d0e8dc", arrowPosition: "right", iconPosition: "right", fontSize: defaults.fontSize },
-    ],
+    columnRows: [...(defaults.columnRows || [1, 1, 1])],
+    panels,
     gap: defaults.gap,
     iconScale: defaults.iconScale,
-    padding: 0,
-    borderWidth: 2,
-    borderColor: "#333333",
-    outerBorder: true,
+    padding: defaults.padding ?? 0,
+    borderWidth: defaults.borderWidth ?? 2,
+    borderColor: defaults.borderColor || "#333333",
+    outerBorder: defaults.outerBorder ?? true,
   };
 }
 
@@ -1039,13 +1101,22 @@ export default function SignBuilder() {
             <div style={{ display: "flex", gap: 4 }}>
               {Object.entries(SIGN_RATIOS).map(([key, { label, w, h }]) => (
                 <button key={key} onClick={() => {
-                  const defaults = SIGN_DEFAULTS[key] || {};
+                  const defaults = getDefaults(key);
+                  const pd = defaults.panelDefaults || {};
                   const newColRows = defaults.columnRows || sign.columnRows;
                   const target = newColRows.reduce((a, b) => a + b, 0);
                   const panels = sign.panels.length < target
-                    ? [...sign.panels.map(p => ({ ...p, fontSize: defaults.fontSize || p.fontSize })),
-                       ...Array.from({ length: target - sign.panels.length }, () => ({ ...createDefaultPanel(), fontSize: defaults.fontSize || 16 }))]
-                    : sign.panels.slice(0, target).map(p => ({ ...p, fontSize: defaults.fontSize || p.fontSize }));
+                    ? [...sign.panels.map(p => ({ ...p, fontSize: pd.fontSize || defaults.fontSize || p.fontSize })),
+                       ...Array.from({ length: target - sign.panels.length }, () => ({
+                         ...createDefaultPanel(),
+                         fontSize: pd.fontSize || defaults.fontSize || 16,
+                         bgColor: pd.bgColor || "#ffffff",
+                         textColor: pd.textColor || "#000000",
+                         arrowDir: pd.arrowDir || "up",
+                         arrowPosition: pd.arrowPosition || "right",
+                         iconPosition: pd.iconPosition || "left",
+                       }))]
+                    : sign.panels.slice(0, target).map(p => ({ ...p, fontSize: pd.fontSize || defaults.fontSize || p.fontSize }));
                   updateSign({
                     ratio: key,
                     columns: defaults.columns ?? sign.columns,
@@ -1054,6 +1125,14 @@ export default function SignBuilder() {
                     arrowWeight: defaults.arrowWeight ?? sign.arrowWeight,
                     gap: defaults.gap ?? sign.gap,
                     iconScale: defaults.iconScale ?? sign.iconScale,
+                    fontFamily: defaults.fontFamily || sign.fontFamily,
+                    fontWeight: defaults.fontWeight ?? sign.fontWeight,
+                    fontStyle: defaults.fontStyle || sign.fontStyle,
+                    allCaps: defaults.allCaps ?? sign.allCaps,
+                    padding: defaults.padding ?? sign.padding,
+                    borderWidth: defaults.borderWidth ?? sign.borderWidth,
+                    borderColor: defaults.borderColor || sign.borderColor,
+                    outerBorder: defaults.outerBorder ?? sign.outerBorder,
                     panels,
                   });
                 }}
@@ -1135,12 +1214,57 @@ export default function SignBuilder() {
               ))}
             </div>
           </div>
-          <div style={{ display: "flex", gap: 8 }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", justifyContent: "space-between" }}>
             <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, cursor: "pointer" }}>
               <input type="checkbox" checked={sign.outerBorder}
                 onChange={(e) => updateSign({ outerBorder: e.target.checked })} />
               Outer border
             </label>
+            <button onClick={() => {
+              const fontVal = sign.fontFamily === DEFAULT_FONT ? null : `"${sign.fontFamily}"`;
+              const code = `  "${sign.ratio}": {
+    // Layout
+    columns: ${sign.columns},
+    columnRows: [${sign.columnRows.join(", ")}],
+    gap: ${sign.gap},
+    iconScale: ${sign.iconScale},
+
+    // Typography
+    fontFamily: ${fontVal},
+    fontWeight: ${sign.fontWeight},
+    fontStyle: "${sign.fontStyle}",
+    allCaps: ${sign.allCaps},
+    fontSize: ${sign.panels[0]?.fontSize || 16},
+    arrowSize: ${sign.arrowSize},
+    arrowWeight: ${sign.arrowWeight || 400},
+
+    // Border
+    outerBorder: ${sign.outerBorder},
+    borderWidth: ${sign.borderWidth},
+    borderColor: "${sign.borderColor}",
+    padding: ${sign.padding},
+
+    // Panel defaults
+    panelDefaults: {
+      bgColor: "${sign.panels[0]?.bgColor || "#ffffff"}",
+      textColor: "${sign.panels[0]?.textColor || "#000000"}",
+      fontSize: ${sign.panels[0]?.fontSize || 16},
+      arrowDir: "${sign.panels[0]?.arrowDir || "up"}",
+      arrowPosition: "${sign.panels[0]?.arrowPosition || "right"}",
+      iconPosition: "${sign.panels[0]?.iconPosition || "left"}",
+      showBorder: ${sign.panels[0]?.showBorder ?? true},
+    },
+  },`;
+              navigator.clipboard.writeText(code).then(() => {
+                alert("Guidelines copied to clipboard!\n\nPaste this to update SIGN_DEFAULTS in the code.");
+              }).catch(() => {
+                console.log("── SIGN_DEFAULTS entry for " + sign.ratio + " ──\n" + code);
+                alert("Copied to console — check the browser console to copy.");
+              });
+            }}
+              style={{ background: "#8b5cf6", color: "#fff", border: "none", borderRadius: 6, padding: "4px 10px", fontSize: 11, cursor: "pointer", fontWeight: 600 }}>
+              📋 Copy Guidelines
+            </button>
           </div>
           <div style={{ marginTop: 10 }}>
             <label style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", display: "block", marginBottom: 4 }}>Font Family</label>
@@ -1364,7 +1488,7 @@ export default function SignBuilder() {
         </div>
 
         {/* Canvas */}
-        <div style={{
+        <div onClick={() => setDragIdx(null)} style={{
           flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
           padding: 40, overflow: "auto",
           background: showHumanFigure ? "#fff" : "repeating-conic-gradient(#e5e7eb 0% 25%, #f3f4f6 0% 50%) 0 0 / 20px 20px",
@@ -1403,6 +1527,7 @@ export default function SignBuilder() {
                           <div key={colIdx} style={{ flex: 1, display: "flex", flexDirection: "column", gap: sign.gap, minWidth: 0 }}>
                             {colPanels.map(({ panel, flatIdx }) => (
                               <div key={panel.id} draggable onDragStart={() => handleDragStart(flatIdx)} onDragOver={(e) => handleDragOver(e, flatIdx)} onDragEnd={handleDragEnd}
+                                onClick={(e) => { e.stopPropagation(); setDragIdx(dragIdx === flatIdx ? null : flatIdx); }}
                                 style={{ cursor: "grab", opacity: dragIdx === flatIdx ? 0.5 : 1, transition: "opacity 0.15s", minWidth: 0, minHeight: 0, overflow: "hidden", display: "flex", flex: 1 }}>
                                 <SignPanel panel={panel} isPreview fontFamily={sign.fontFamily} fontWeight={sign.fontWeight} fontStyle={sign.fontStyle} allCaps={sign.allCaps} arrowSize={sign.arrowSize} arrowFontFamily={arrowFontFamily} horizontal={rowCount > 1} iconScale={sign.iconScale} />
                               </div>
@@ -1482,6 +1607,7 @@ export default function SignBuilder() {
                             <div key={colIdx} style={{ flex: 1, display: "flex", flexDirection: "column", gap: sign.gap, minWidth: 0 }}>
                               {colPanels.map(({ panel, flatIdx }) => (
                                 <div key={panel.id} draggable onDragStart={() => handleDragStart(flatIdx)} onDragOver={(e) => handleDragOver(e, flatIdx)} onDragEnd={handleDragEnd}
+                                  onClick={(e) => { e.stopPropagation(); setDragIdx(dragIdx === flatIdx ? null : flatIdx); }}
                                   style={{ cursor: "grab", opacity: dragIdx === flatIdx ? 0.5 : 1, transition: "opacity 0.15s", minWidth: 0, minHeight: 0, overflow: "hidden", display: "flex", flex: 1 }}>
                                   <SignPanel panel={panel} isPreview fontFamily={sign.fontFamily} fontWeight={sign.fontWeight} fontStyle={sign.fontStyle} allCaps={sign.allCaps} arrowSize={sign.arrowSize} arrowFontFamily={arrowFontFamily} horizontal={rowCount > 1} iconScale={sign.iconScale} />
                                 </div>
