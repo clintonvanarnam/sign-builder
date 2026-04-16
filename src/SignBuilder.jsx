@@ -83,6 +83,13 @@ const SIGN_DEFAULTS = {
           2: { fontSize: 14, arrowSize: 28 },
         },
       },
+      "2x2-1": {
+        fontSize: 16, arrowSize: 36, iconScale: 0.54,
+        rowSizing: {
+          2: { fontSize: 16, arrowSize: 36 },
+          1: { fontSize: 16, arrowSize: 36 },
+        },
+      },
       "2x1-3": {
         fontSize: 18, arrowSize: 36, iconScale: 0.7,
         rowSizing: {
@@ -139,12 +146,26 @@ const SIGN_DEFAULTS = {
       "1x1": { fontSize: 22, arrowSize: 32, iconScale: 0.7, panelDefaults: { fontSize: 22 } },
       "1x2": { fontSize: 12, arrowSize: 16, iconScale: 0.74, panelDefaults: { fontSize: 12 } },
       "2x1": { fontSize: 16, arrowSize: 24, iconScale: 0.55, panelDefaults: { fontSize: 16 } },
-      "2x2": { fontSize: 12, arrowSize: 16, iconScale: 0.5, panelDefaults: { fontSize: 12 } },
+      "2x2": { fontSize: 8, arrowSize: 16, iconScale: 0.5, panelLayout: "vertical", panelDefaults: { fontSize: 8 } },
       "2x1-2": {
         fontSize: 14, arrowSize: 20, iconScale: 0.55,
         rowSizing: {
           1: { fontSize: 18, arrowSize: 24 },
           2: { fontSize: 12, arrowSize: 16 },
+        },
+      },
+      "2x2-1": {
+        fontSize: 10, arrowSize: 16, iconScale: 0.74,
+        rowSizing: {
+          2: { fontSize: 10, arrowSize: 16, panelLayout: "vertical" },
+          1: { fontSize: 12, arrowSize: 16 },
+        },
+      },
+      "2x3-1": {
+        fontSize: 8, arrowSize: 16, iconScale: 0.74,
+        rowSizing: {
+          3: { fontSize: 8, arrowSize: 16, panelLayout: "horizontal" },
+          1: { fontSize: 12, arrowSize: 16 },
         },
       },
     },
@@ -159,7 +180,7 @@ const COLOR_PALETTE = [
 ];
 
 const ICON_TEXT_MAP = {
-  "Agency Buildings": "AGENCY BUILDINGS 1 & 2",
+  "Agency Buildings": "BUILDINGS 1 & 2",
   "Capitol": "THE CAPITOL",
   "Egg": "THE EGG",
   "Museum": "NY STATE MUSEUM",
@@ -223,13 +244,15 @@ function buildPanelsForLayout(ratio, columnRows, existingPanels) {
     const rows = columnRows[col];
     const rs = rowSizing?.[rows];
     const fontSize = rs?.fontSize || pd.fontSize || ld.fontSize || 16;
+    const rsPanelLayout = rs?.panelLayout || undefined;
     for (let r = 0; r < rows; r++) {
       if (existingPanels && flatIdx < existingPanels.length) {
-        panels.push({ ...existingPanels[flatIdx], fontSize });
+        panels.push({ ...existingPanels[flatIdx], fontSize, ...(rsPanelLayout ? { panelLayout: rsPanelLayout } : {}) });
       } else {
         panels.push({
           ...createDefaultPanel(),
           fontSize,
+          ...(rsPanelLayout ? { panelLayout: rsPanelLayout } : {}),
           bgColor: pd.bgColor || "#ffffff",
           textColor: pd.textColor || "#000000",
           arrowDir: pd.arrowDir || "up",
@@ -490,8 +513,8 @@ function SignPanel({ panel, isPreview = false, fontFamily, fontWeight = 700, fon
         {panel.arrowDir !== "none" && (
           <div data-export={isPreview ? "arrow" : undefined} style={{
             position: "absolute",
-            top: isPreview ? 6 : 3,
-            [arrowOnLeft ? "left" : "right"]: isPreview ? 6 : 3,
+            top: isPreview ? 2 : 1,
+            [arrowOnLeft ? "left" : "right"]: isPreview ? 2 : 1,
             zIndex: 1,
           }}>
             {arrowEl}
@@ -540,8 +563,8 @@ function SignPanel({ panel, isPreview = false, fontFamily, fontWeight = 700, fon
       {panel.arrowDir !== "none" && (
         <div data-export={isPreview ? "arrow" : undefined} style={{
           position: "absolute",
-          top: 6,
-          [arrowOnLeft ? "left" : "right"]: 6,
+          top: isPreview ? 2 : 1,
+          [arrowOnLeft ? "left" : "right"]: isPreview ? 2 : 1,
           zIndex: 1,
         }}>
           {arrowEl}
@@ -1304,10 +1327,9 @@ export default function SignBuilder() {
         overflowY: "auto", padding: 16, flexShrink: 0,
       }}>
         <div style={{ fontSize: 20, fontWeight: 800, marginBottom: 4, color: "#111827" }}>
-          Sign Builder
-        </div>
+Empire State Plaza Sign Builder        </div>
         <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 16 }}>
-          Modular wayfinding sign system
+          WXY
         </div>
 
         {/* Sign-level controls */}
@@ -1458,7 +1480,7 @@ export default function SignBuilder() {
             <label style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", display: "block", marginBottom: 4 }}>Panel Layout</label>
             <div style={{ display: "flex", gap: 4 }}>
               {["auto", "vertical", "horizontal"].map((mode) => (
-                <button key={mode} onClick={() => updateSign({ panelLayout: mode })}
+                <button key={mode} onClick={() => updateSign({ panelLayout: mode, panels: sign.panels.map(p => ({ ...p, panelLayout: "auto" })) })}
                   style={{
                     flex: 1, padding: "4px 0", fontSize: 11, fontWeight: 600, cursor: "pointer",
                     border: (sign.panelLayout || "auto") === mode ? "2px solid #3b82f6" : "1px solid #d1d5db",
@@ -1499,11 +1521,17 @@ export default function SignBuilder() {
                     sampleIdx += sign.columnRows[c];
                   }
                   const fs = sign.panels[sampleIdx]?.fontSize || 16;
-                  return `          ${rc}: { fontSize: ${fs}, arrowSize: ${sign.arrowSize} },`;
+                  const ppl = sign.panels[sampleIdx]?.panelLayout;
+                  const plPart = ppl && ppl !== "auto" ? `, panelLayout: "${ppl}"` : "";
+                  return `          ${rc}: { fontSize: ${fs}, arrowSize: ${sign.arrowSize}${plPart} },`;
                 });
                 rowSizingCode = `\n        rowSizing: {\n${entries.join("\n")}\n        },`;
               }
-              const plCode = (sign.panelLayout && sign.panelLayout !== "auto") ? ` panelLayout: "${sign.panelLayout}",` : "";
+              // Check if any panel has a non-auto layout override
+              const samplePl = sign.panels[0]?.panelLayout;
+              const allPanelsSameLayout = sign.panels.every(p => (p.panelLayout || "auto") === (samplePl || "auto"));
+              const panelPlCode = allPanelsSameLayout && samplePl && samplePl !== "auto" ? ` panelLayout: "${samplePl}",` : "";
+              const plCode = (sign.panelLayout && sign.panelLayout !== "auto") ? ` panelLayout: "${sign.panelLayout}",` : panelPlCode;
               const code = `      "${layoutKey}": { fontSize: ${sign.panels[0]?.fontSize || 16}, arrowSize: ${sign.arrowSize}, iconScale: ${sign.iconScale},${plCode}${rowSizingCode} },`;
               const fullCode = `  "${sign.ratio}": {
     // Layout: ${layoutKey}
