@@ -105,6 +105,27 @@ const SIGN_DEFAULTS = {
           1: { fontSize: 16, arrowSize: 36 },
         },
       },
+      "3x3-1-1": {
+        fontSize: 11, arrowSize: 36, iconScale: 0.54,
+        rowSizing: {
+          3: { fontSize: 11, arrowSize: 36 },
+          1: { fontSize: 16, arrowSize: 36 },
+        },
+      },
+      "3x4-1-1": {
+        fontSize: 11, arrowSize: 36, iconScale: 0.54,
+        rowSizing: {
+          4: { fontSize: 11, arrowSize: 36 },
+          1: { fontSize: 16, arrowSize: 36 },
+        },
+      },
+      "3x1-4-1": {
+        fontSize: 16, arrowSize: 36, iconScale: 0.54, panelPadding: 6,
+        rowSizing: {
+          1: { fontSize: 16, arrowSize: 36, iconScale: 0.54, panelPadding: 6 },
+          4: { fontSize: 11, arrowSize: 23, iconScale: 0.54, panelPadding: 0 },
+        },
+      },
     },
   },
   "5:3": {
@@ -182,8 +203,15 @@ const COLOR_PALETTE = [
 const ICON_TEXT_MAP = {
   "Agency Buildings": "BUILDINGS 1 & 2",
   "Capitol": "THE CAPITOL",
+  "Corning": "CORNING TOWER",
   "Egg": "THE EGG",
   "Museum": "NY STATE MUSEUM",
+  "ObservationDeck": "OBSERVATION DECK",
+};
+
+// Icons that always get a specific background color (overrides random & manual)
+const ICON_BG_RULES = {
+  "Restroom": "#c4dae8",
 };
 
 // Convert CSS px font size to real-world inches based on sign ratio
@@ -229,7 +257,7 @@ function getPanelFontSize(ratio, columnRows, colIdx, fallback) {
 }
 
 // Build panels with per-column font sizes from rowSizing
-function buildPanelsForLayout(ratio, columnRows, existingPanels) {
+function buildPanelsForLayout(ratio, columnRows, existingPanels, existingColumnRows = null, existingRatio = ratio) {
   const ld = getDefaults(ratio, columnRows);
   const base = SIGN_DEFAULTS[ratio] || SIGN_DEFAULTS["27:5"];
   const layoutKey = getLayoutKey(columnRows);
@@ -237,21 +265,66 @@ function buildPanelsForLayout(ratio, columnRows, existingPanels) {
   const rowSizing = override?.rowSizing;
   const pd = ld.panelDefaults || {};
   const target = columnRows.reduce((a, b) => a + b, 0);
+  const cols = columnRows.length;
+
+  // Build a map of aspect-key -> standards from existing panels.
+  // Aspect-key is based on sign ratio + columns + rows-in-column.
+  const prevColumnRows = existingColumnRows || columnRows;
+  const existingSizeByAspect = {};
+  if (existingPanels) {
+    let fi = 0;
+    const prevCols = prevColumnRows.length;
+    for (let col = 0; col < prevColumnRows.length; col++) {
+      const rows = prevColumnRows[col];
+      for (let r = 0; r < rows; r++) {
+        if (fi < existingPanels.length) {
+          const ep = existingPanels[fi];
+          const aspectKey = `${existingRatio}|c${prevCols}|r${rows}`;
+          if (!existingSizeByAspect[aspectKey]) {
+            existingSizeByAspect[aspectKey] = {
+              fontSize: ep.fontSize,
+              arrowSize: ep.arrowSize,
+              iconScale: ep.iconScale,
+              panelPadding: ep.panelPadding,
+            };
+          }
+        }
+        fi++;
+      }
+    }
+  }
 
   const panels = [];
   let flatIdx = 0;
   for (let col = 0; col < columnRows.length; col++) {
     const rows = columnRows[col];
     const rs = rowSizing?.[rows];
-    const fontSize = rs?.fontSize || pd.fontSize || ld.fontSize || 16;
+    // Fallback sizing: prefer what existing same-aspect panels already use, then layout defaults
+    const aspectKey = `${ratio}|c${cols}|r${rows}`;
+    const existingSize = existingSizeByAspect[aspectKey];
+    const defaultFontSize = existingSize?.fontSize ?? rs?.fontSize ?? pd.fontSize ?? ld.fontSize ?? 16;
+    const defaultArrowSize = existingSize?.arrowSize ?? rs?.arrowSize ?? ld.arrowSize ?? 36;
+    const defaultIconScale = existingSize?.iconScale ?? rs?.iconScale ?? ld.iconScale ?? 0.65;
+    const defaultPanelPadding = existingSize?.panelPadding ?? rs?.panelPadding ?? ld.panelPadding ?? 0;
     const rsPanelLayout = rs?.panelLayout || undefined;
     for (let r = 0; r < rows; r++) {
       if (existingPanels && flatIdx < existingPanels.length) {
-        panels.push({ ...existingPanels[flatIdx], fontSize, ...(rsPanelLayout ? { panelLayout: rsPanelLayout } : {}) });
+        const ep = existingPanels[flatIdx];
+        panels.push({
+          ...ep,
+          fontSize: defaultFontSize,
+          arrowSize: defaultArrowSize,
+          iconScale: defaultIconScale,
+          panelPadding: defaultPanelPadding,
+          ...(rsPanelLayout ? { panelLayout: rsPanelLayout } : {}),
+        });
       } else {
         panels.push({
           ...createDefaultPanel(),
-          fontSize,
+          fontSize: defaultFontSize,
+          arrowSize: defaultArrowSize,
+          iconScale: defaultIconScale,
+          panelPadding: defaultPanelPadding,
           ...(rsPanelLayout ? { panelLayout: rsPanelLayout } : {}),
           bgColor: pd.bgColor || "#ffffff",
           textColor: pd.textColor || "#000000",
@@ -276,6 +349,9 @@ function createDefaultPanel() {
     bgColor: "#ffffff",
     textColor: "#000000",
     fontSize: 16,
+    arrowSize: 36,
+    iconScale: 0.65,
+    panelPadding: 0,
     showBorder: true,
     arrowPosition: "right",
     iconPosition: "left",
@@ -410,6 +486,18 @@ function getColumnForIndex(columnRows, flatIdx) {
   return columnRows.length - 1;
 }
 
+function getPanelAspectKey(signLike, panelIdx) {
+  const rows = signLike.columnRows?.[getColumnForIndex(signLike.columnRows || [], panelIdx)] || 1;
+  const cols = signLike.columnRows?.length || signLike.columns || 1;
+  return `${signLike.ratio}|c${cols}|r${rows}`;
+}
+
+function getPanelAspectLabel(signLike, panelIdx) {
+  const rows = signLike.columnRows?.[getColumnForIndex(signLike.columnRows || [], panelIdx)] || 1;
+  const cols = signLike.columnRows?.length || signLike.columns || 1;
+  return `${signLike.ratio} • ${cols} columns • ${rows}-row column panels`;
+}
+
 /* ── Helper: get starting flat index for a column ── */
 function getColumnStartIndex(columnRows, col) {
   let start = 0;
@@ -492,9 +580,12 @@ function SignPanel({ panel, isPreview = false, fontFamily, fontWeight = 700, fon
 
   const panelWithFont = { ...panel, _fontWeight: fontWeight, _fontStyle: fontStyle };
 
-  const arrowEl = <ArrowChar dir={panel.arrowDir} size={isPreview ? arrowSize : arrowSize * 0.8} color={panel.textColor} fontFamily={resolvedArrowFont} />;
+  const resolvedArrowSize = panel.arrowSize ?? arrowSize;
+  const resolvedIconScale = panel.iconScale ?? iconScale;
+  const resolvedPanelPadding = panel.panelPadding ?? panelPadding;
+  const arrowEl = <ArrowChar dir={panel.arrowDir} size={isPreview ? resolvedArrowSize : resolvedArrowSize * 0.8} color={panel.textColor} fontFamily={resolvedArrowFont} />;
   const arrowOnLeft = panel.arrowPosition === "left";
-  const pp = isPreview ? panelPadding : panelPadding * 0.6;
+  const pp = isPreview ? resolvedPanelPadding : resolvedPanelPadding * 0.6;
 
   if (horizontal) {
     // Horizontal layout: icon left 1/3, text right 2/3, arrow top corner
@@ -507,7 +598,7 @@ function SignPanel({ panel, isPreview = false, fontFamily, fontWeight = 700, fon
         border: panel.showBorder ? `2px solid #333` : "none",
         boxSizing: "border-box",
         padding: pp,
-        boxShadow: debugSpacing && panelPadding > 0 ? `inset 0 0 0 ${pp}px rgba(255,0,0,0.2)` : undefined,
+        boxShadow: debugSpacing && resolvedPanelPadding > 0 ? `inset 0 0 0 ${pp}px rgba(255,0,0,0.2)` : undefined,
       }}>
         {/* Arrow overlay */}
         {panel.arrowDir !== "none" && (
@@ -527,7 +618,7 @@ function SignPanel({ panel, isPreview = false, fontFamily, fontWeight = 700, fon
           padding: isPreview ? "4px" : "2px",
           boxSizing: "border-box",
         }}>
-          <PanelIcon panel={panel} iconScale={1} maxHeight="100%" />
+          <PanelIcon panel={panel} iconScale={resolvedIconScale} maxHeight="100%" />
         </div>
         {/* Text — right 2/3 */}
         <div style={{
@@ -557,7 +648,7 @@ function SignPanel({ panel, isPreview = false, fontFamily, fontWeight = 700, fon
       border: panel.showBorder ? `2px solid #333` : "none",
       boxSizing: "border-box",
       padding: pp,
-      boxShadow: debugSpacing && panelPadding > 0 ? `inset 0 0 0 ${pp}px rgba(255,0,0,0.2)` : undefined,
+      boxShadow: debugSpacing && resolvedPanelPadding > 0 ? `inset 0 0 0 ${pp}px rgba(255,0,0,0.2)` : undefined,
     }}>
       {/* Arrow overlay */}
       {panel.arrowDir !== "none" && (
@@ -576,7 +667,7 @@ function SignPanel({ panel, isPreview = false, fontFamily, fontWeight = 700, fon
         width: "100%", minHeight: 0,
         boxSizing: "border-box",
       }}>
-        <PanelIcon panel={panel} iconScale={iconScale} />
+        <PanelIcon panel={panel} iconScale={resolvedIconScale} />
       </div>
       {/* Text area */}
       <div style={{
@@ -599,7 +690,7 @@ function SignPanel({ panel, isPreview = false, fontFamily, fontWeight = 700, fon
 }
 
 /* ── Panel Editor ── */
-function PanelEditor({ panel, onChange, onRemove, onDuplicate, onLayoutChange, customIcons, fontFamily, fontWeight, fontStyle, allCaps, arrowSize, arrowFontFamily, rows, iconScale, panelLayout, ratio }) {
+function PanelEditor({ panel, onChange, onRemove, onDuplicate, onLayoutChange, customIcons, iconTitleMap, fontFamily, fontWeight, fontStyle, allCaps, arrowSize, arrowFontFamily, rows, iconScale, panelLayout, ratio }) {
   const fileRef = useRef();
 
   const set = (key, val) => onChange({ ...panel, [key]: val });
@@ -656,8 +747,9 @@ function PanelEditor({ panel, onChange, onRemove, onDuplicate, onLayoutChange, c
               if (e.target.value.startsWith("__ci_")) {
                 const icon = customIcons[parseInt(e.target.value.replace("__ci_", ""))];
                 const baseName = icon.name.replace(/\.[^.]+$/, "");
-                const autoText = ICON_TEXT_MAP[baseName] || baseName.replace(/[-_]/g, " ").toUpperCase();
-                onChange({ ...panel, customIcon: icon.svg, text: autoText });
+                const autoText = (iconTitleMap || ICON_TEXT_MAP)[baseName] || baseName.replace(/[-_]/g, " ").toUpperCase();
+                const forcedBg = ICON_BG_RULES[baseName];
+                onChange({ ...panel, customIcon: icon.svg, text: autoText, ...(forcedBg ? { bgColor: forcedBg } : {}) });
                 return;
               }
               if (e.target.value === "") { onChange({ ...panel, icon: null, customIcon: null }); }
@@ -1011,14 +1103,38 @@ export default function SignBuilder() {
   const [activeSignIdx, setActiveSignIdx] = useState(0);
   const [customIcons, setCustomIcons] = useState([]);
   const [customFonts, setCustomFonts] = useState([]);
+  const [iconTitleMap, setIconTitleMap] = useState({...ICON_TEXT_MAP});
+  const [iconTitlesSaved, setIconTitlesSaved] = useState(true);
   const [dragIdx, setDragIdx] = useState(null);
   const [dragColIdx, setDragColIdx] = useState(null);
   const [showDebugSpacing, setShowDebugSpacing] = useState(false);
   const [iconDeleteMode, setIconDeleteMode] = useState(false);
   const [showHumanFigure, setShowHumanFigure] = useState(false);
+  const [selectedAspectLabel, setSelectedAspectLabel] = useState("");
   const iconUploadRef = useRef();
   const fontUploadRef = useRef();
   const signPreviewRef = useRef();
+
+  // Load saved icon titles on mount
+  useEffect(() => {
+    fetch('/icon-titles.json')
+      .then(r => r.json())
+      .then((data) => setIconTitleMap({ ...ICON_TEXT_MAP, ...data }))
+      .catch(() => {});
+  }, []);
+
+  // Auto-save icon titles to server when they change
+  useEffect(() => {
+    setIconTitlesSaved(false);
+    const timer = setTimeout(() => {
+      fetch('/api/icon-titles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(iconTitleMap),
+      }).then(() => setIconTitlesSaved(true)).catch(() => {});
+    }, 800);
+    return () => clearTimeout(timer);
+  }, [iconTitleMap]);
 
   // Load saved icons from public/icons/ on mount
   useEffect(() => {
@@ -1095,7 +1211,30 @@ export default function SignBuilder() {
   const updatePanel = useCallback((panelId, updates) => {
     setSigns((prev) => prev.map((s, i) => {
       if (i !== activeSignIdx) return s;
-      return { ...s, panels: s.panels.map((p) => p.id === panelId ? { ...p, ...updates } : p) };
+      const targetIdx = s.panels.findIndex((p) => p.id === panelId);
+      if (targetIdx < 0) return s;
+
+      // Standards tied to panel aspect (ratio + columns + rows)
+      const shouldSyncByAspect = updates.fontSize !== undefined || updates.arrowSize !== undefined || updates.iconScale !== undefined || updates.panelPadding !== undefined;
+      if (!shouldSyncByAspect) {
+        return { ...s, panels: s.panels.map((p) => p.id === panelId ? { ...p, ...updates } : p) };
+      }
+
+      const targetAspect = getPanelAspectKey(s, targetIdx);
+      const syncedPanels = s.panels.map((p, idx) => {
+        if (getPanelAspectKey(s, idx) !== targetAspect) {
+          return p.id === panelId ? { ...p, ...updates } : p;
+        }
+        return {
+          ...p,
+          ...(updates.fontSize !== undefined ? { fontSize: updates.fontSize } : {}),
+          ...(updates.arrowSize !== undefined ? { arrowSize: updates.arrowSize } : {}),
+          ...(updates.iconScale !== undefined ? { iconScale: updates.iconScale } : {}),
+          ...(updates.panelPadding !== undefined ? { panelPadding: updates.panelPadding } : {}),
+          ...(p.id === panelId ? updates : {}),
+        };
+      });
+      return { ...s, panels: syncedPanels };
     }));
   }, [activeSignIdx]);
 
@@ -1347,7 +1486,7 @@ Empire State Plaza Sign Builder        </div>
                 <button key={key} onClick={() => {
                   const defaults = getDefaults(key);
                   const newColRows = defaults.columnRows || sign.columnRows;
-                  const panels = buildPanelsForLayout(key, newColRows, sign.panels);
+                  const panels = buildPanelsForLayout(key, newColRows, sign.panels, sign.columnRows, sign.ratio);
                   const layoutDefaults = getDefaults(key, newColRows);
                   updateSign({
                     ratio: key,
@@ -1403,7 +1542,7 @@ Empire State Plaza Sign Builder        </div>
                     while (newColRows.length > n) newColRows.pop();
                     while (newColRows.length < n) newColRows.push(1);
                     const ld = getDefaults(sign.ratio, newColRows);
-                    const panels = buildPanelsForLayout(sign.ratio, newColRows, sign.panels);
+                    const panels = buildPanelsForLayout(sign.ratio, newColRows, sign.panels, sign.columnRows);
                     updateSign({
                       columns: n, columnRows: newColRows, panels,
                       arrowSize: ld.arrowSize, iconScale: ld.iconScale,
@@ -1449,7 +1588,7 @@ Empire State Plaza Sign Builder        </div>
                         const newColRows = [...columnRows];
                         newColRows[colIdx] = n;
                         const ld = getDefaults(sign.ratio, newColRows);
-                        const panels = buildPanelsForLayout(sign.ratio, newColRows, sign.panels);
+                        const panels = buildPanelsForLayout(sign.ratio, newColRows, sign.panels, sign.columnRows);
                         updateSign({
                           columnRows: newColRows, panels,
                           arrowSize: ld.arrowSize, iconScale: ld.iconScale,
@@ -1471,9 +1610,54 @@ Empire State Plaza Sign Builder        </div>
           {/* Panel Padding control */}
           <div style={{ marginBottom: 8 }}>
             <label style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", display: "block", marginBottom: 2 }}>Panel Padding</label>
-            <input type="range" min={0} max={20} value={sign.panelPadding}
-              onChange={(e) => updateSign({ panelPadding: parseInt(e.target.value) })} style={{ width: "100%" }} />
-            <div style={{ fontSize: 11, color: "#9ca3af", textAlign: "center" }}>{sign.panelPadding}px</div>
+            {(() => {
+              const rowCounts = [...new Set(columnRows)];
+              const hasMixed = rowCounts.length > 1;
+              if (!hasMixed) {
+                return (
+                  <>
+                    <input type="range" min={0} max={24} value={sign.panels[0]?.panelPadding ?? sign.panelPadding}
+                      onChange={(e) => {
+                        const pp = parseInt(e.target.value);
+                        updateSign({ panelPadding: pp, panels: sign.panels.map(p => ({ ...p, panelPadding: pp })) });
+                      }} style={{ width: "100%" }} />
+                    <div style={{ fontSize: 11, color: "#9ca3af", textAlign: "center" }}>{sign.panels[0]?.panelPadding ?? sign.panelPadding}px</div>
+                  </>
+                );
+              }
+              return rowCounts.map((rc) => {
+                const label = rc === 1 ? "Full panels" : `${rc}-row panels`;
+                let sampleIdx = 0;
+                for (let c = 0; c < columnRows.length; c++) {
+                  if (columnRows[c] === rc) break;
+                  sampleIdx += columnRows[c];
+                }
+                const currentPp = sign.panels[sampleIdx]?.panelPadding ?? sign.panelPadding;
+                return (
+                  <div key={rc} style={{ marginBottom: 4 }}>
+                    <div style={{ fontSize: 10, color: "#9ca3af", marginBottom: 1 }}>{label}</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <input type="range" min={0} max={24} value={currentPp}
+                        onChange={(e) => {
+                          const pp = parseInt(e.target.value);
+                          let idx = 0;
+                          const newPanels = [...sign.panels];
+                          for (let c = 0; c < columnRows.length; c++) {
+                            for (let r = 0; r < columnRows[c]; r++) {
+                              if (columnRows[c] === rc && idx < newPanels.length) {
+                                newPanels[idx] = { ...newPanels[idx], panelPadding: pp };
+                              }
+                              idx++;
+                            }
+                          }
+                          updateSign({ panels: newPanels });
+                        }} style={{ flex: 1 }} />
+                      <span style={{ fontSize: 11, color: "#9ca3af", minWidth: 28 }}>{currentPp}px</span>
+                    </div>
+                  </div>
+                );
+              });
+            })()}
           </div>
           {/* Panel Layout orientation */}
           <div style={{ marginBottom: 8 }}>
@@ -1510,7 +1694,7 @@ Empire State Plaza Sign Builder        </div>
             <button onClick={() => {
               const fontVal = sign.fontFamily === DEFAULT_FONT ? null : `"${sign.fontFamily}"`;
               const layoutKey = getLayoutKey(sign.columnRows);
-              // Build rowSizing from current panel font sizes
+              // Build rowSizing from current panel standards
               const rowCounts = [...new Set(sign.columnRows)];
               let rowSizingCode = "";
               if (rowCounts.length > 1) {
@@ -1521,9 +1705,12 @@ Empire State Plaza Sign Builder        </div>
                     sampleIdx += sign.columnRows[c];
                   }
                   const fs = sign.panels[sampleIdx]?.fontSize || 16;
+                  const as = sign.panels[sampleIdx]?.arrowSize ?? sign.arrowSize;
+                  const isc = sign.panels[sampleIdx]?.iconScale ?? sign.iconScale ?? 0.65;
+                  const ppd = sign.panels[sampleIdx]?.panelPadding ?? sign.panelPadding ?? 0;
                   const ppl = sign.panels[sampleIdx]?.panelLayout;
                   const plPart = ppl && ppl !== "auto" ? `, panelLayout: "${ppl}"` : "";
-                  return `          ${rc}: { fontSize: ${fs}, arrowSize: ${sign.arrowSize}${plPart} },`;
+                  return `          ${rc}: { fontSize: ${fs}, arrowSize: ${as}, iconScale: ${isc}, panelPadding: ${ppd}${plPart} },`;
                 });
                 rowSizingCode = `\n        rowSizing: {\n${entries.join("\n")}\n        },`;
               }
@@ -1532,7 +1719,7 @@ Empire State Plaza Sign Builder        </div>
               const allPanelsSameLayout = sign.panels.every(p => (p.panelLayout || "auto") === (samplePl || "auto"));
               const panelPlCode = allPanelsSameLayout && samplePl && samplePl !== "auto" ? ` panelLayout: "${samplePl}",` : "";
               const plCode = (sign.panelLayout && sign.panelLayout !== "auto") ? ` panelLayout: "${sign.panelLayout}",` : panelPlCode;
-              const code = `      "${layoutKey}": { fontSize: ${sign.panels[0]?.fontSize || 16}, arrowSize: ${sign.arrowSize}, iconScale: ${sign.iconScale},${plCode}${rowSizingCode} },`;
+              const code = `      "${layoutKey}": { fontSize: ${sign.panels[0]?.fontSize || 16}, arrowSize: ${sign.panels[0]?.arrowSize ?? sign.arrowSize}, iconScale: ${sign.panels[0]?.iconScale ?? sign.iconScale}, panelPadding: ${sign.panels[0]?.panelPadding ?? sign.panelPadding},${plCode}${rowSizingCode} },`;
               const fullCode = `  "${sign.ratio}": {
     // Layout: ${layoutKey}
     columns: ${sign.columns},
@@ -1735,19 +1922,103 @@ ${code}
               </div>
               <div style={{ flex: 1 }}>
                 <label style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", display: "block", marginBottom: 3 }}>Icon Scale</label>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <input type="range" min={20} max={100} value={Math.round((sign.iconScale || 0.65) * 100)} onChange={(e) => updateSign({ iconScale: parseInt(e.target.value) / 100 })} style={{ flex: 1 }} />
-                  <span style={{ fontSize: 11, color: "#9ca3af", minWidth: 28 }}>{Math.round((sign.iconScale || 0.65) * 100)}%</span>
-                </div>
+                {(() => {
+                  const rowCounts = [...new Set(columnRows)];
+                  const hasMixed = rowCounts.length > 1;
+                  if (!hasMixed) {
+                    return (
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <input type="range" min={20} max={100} value={Math.round((sign.panels[0]?.iconScale ?? sign.iconScale ?? 0.65) * 100)} onChange={(e) => {
+                          const scale = parseInt(e.target.value) / 100;
+                          updateSign({ iconScale: scale, panels: sign.panels.map(p => ({ ...p, iconScale: scale })) });
+                        }} style={{ flex: 1 }} />
+                        <span style={{ fontSize: 11, color: "#9ca3af", minWidth: 28 }}>{Math.round((sign.panels[0]?.iconScale ?? sign.iconScale ?? 0.65) * 100)}%</span>
+                      </div>
+                    );
+                  }
+                  return rowCounts.map(rc => {
+                    const label = rc === 1 ? "Full panels" : `${rc}-row panels`;
+                    let sampleIdx = 0;
+                    for (let c = 0; c < columnRows.length; c++) {
+                      if (columnRows[c] === rc) break;
+                      sampleIdx += columnRows[c];
+                    }
+                    const currentScale = sign.panels[sampleIdx]?.iconScale ?? sign.iconScale ?? 0.65;
+                    return (
+                      <div key={rc} style={{ marginBottom: 4 }}>
+                        <div style={{ fontSize: 10, color: "#9ca3af", marginBottom: 1 }}>{label}</div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <input type="range" min={20} max={100} value={Math.round(currentScale * 100)} onChange={(e) => {
+                            const scale = parseInt(e.target.value) / 100;
+                            let idx = 0;
+                            const newPanels = [...sign.panels];
+                            for (let c = 0; c < columnRows.length; c++) {
+                              for (let r = 0; r < columnRows[c]; r++) {
+                                if (columnRows[c] === rc && idx < newPanels.length) {
+                                  newPanels[idx] = { ...newPanels[idx], iconScale: scale };
+                                }
+                                idx++;
+                              }
+                            }
+                            updateSign({ panels: newPanels });
+                          }} style={{ flex: 1 }} />
+                          <span style={{ fontSize: 11, color: "#9ca3af", minWidth: 28 }}>{Math.round(currentScale * 100)}%</span>
+                        </div>
+                      </div>
+                    );
+                  });
+                })()}
               </div>
             </div>
             <div style={{ marginTop: 8, display: "flex", gap: 12 }}>
               <div style={{ flex: 1 }}>
                 <label style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", display: "block", marginBottom: 3 }}>Arrow Size</label>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <input type="range" min={8} max={48} value={sign.arrowSize} onChange={(e) => updateSign({ arrowSize: parseInt(e.target.value) })} style={{ flex: 1 }} />
-                  <span style={{ fontSize: 11, color: "#9ca3af", minWidth: 36 }}>{formatInches(pxToInches(sign.arrowSize, sign.ratio))}</span>
-                </div>
+                {(() => {
+                  const rowCounts = [...new Set(columnRows)];
+                  const hasMixed = rowCounts.length > 1;
+                  if (!hasMixed) {
+                    return (
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <input type="range" min={8} max={72} value={sign.panels[0]?.arrowSize ?? sign.arrowSize} onChange={(e) => {
+                          const as = parseInt(e.target.value);
+                          updateSign({ arrowSize: as, panels: sign.panels.map(p => ({ ...p, arrowSize: as })) });
+                        }} style={{ flex: 1 }} />
+                        <span style={{ fontSize: 11, color: "#9ca3af", minWidth: 36 }}>{formatInches(pxToInches(sign.panels[0]?.arrowSize ?? sign.arrowSize, sign.ratio))}</span>
+                      </div>
+                    );
+                  }
+                  return rowCounts.map(rc => {
+                    const label = rc === 1 ? "Full panels" : `${rc}-row panels`;
+                    let sampleIdx = 0;
+                    for (let c = 0; c < columnRows.length; c++) {
+                      if (columnRows[c] === rc) break;
+                      sampleIdx += columnRows[c];
+                    }
+                    const currentAs = sign.panels[sampleIdx]?.arrowSize ?? sign.arrowSize;
+                    return (
+                      <div key={rc} style={{ marginBottom: 4 }}>
+                        <div style={{ fontSize: 10, color: "#9ca3af", marginBottom: 1 }}>{label}</div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <input type="range" min={8} max={72} value={currentAs} onChange={(e) => {
+                            const as = parseInt(e.target.value);
+                            let idx = 0;
+                            const newPanels = [...sign.panels];
+                            for (let c = 0; c < columnRows.length; c++) {
+                              for (let r = 0; r < columnRows[c]; r++) {
+                                if (columnRows[c] === rc && idx < newPanels.length) {
+                                  newPanels[idx] = { ...newPanels[idx], arrowSize: as };
+                                }
+                                idx++;
+                              }
+                            }
+                            updateSign({ panels: newPanels });
+                          }} style={{ flex: 1 }} />
+                          <span style={{ fontSize: 11, color: "#9ca3af", minWidth: 36 }}>{formatInches(pxToInches(currentAs, sign.ratio))}</span>
+                        </div>
+                      </div>
+                    );
+                  });
+                })()}
               </div>
               <div style={{ flex: 1 }}>
                 <label style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", display: "block", marginBottom: 3 }}>Arrow Weight</label>
@@ -1764,6 +2035,11 @@ ${code}
         <div style={{ background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 10, padding: 14, marginBottom: 14 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
             <div style={{ fontWeight: 700, fontSize: 13, color: "#374151" }}>Icon Library</div>
+            {customIcons.length > 0 && (
+              <span style={{ fontSize: 10, color: iconTitlesSaved ? "#10b981" : "#9ca3af", marginLeft: 4 }}>
+                {iconTitlesSaved ? "✓ Saved" : "Saving…"}
+              </span>
+            )}
             <div style={{ display: "flex", gap: 4 }}>
               {customIcons.length > 0 && (
                 <button onClick={() => setIconDeleteMode(!iconDeleteMode)}
@@ -1779,21 +2055,41 @@ ${code}
             <input ref={iconUploadRef} type="file" accept=".svg" style={{ display: "none" }} onChange={handleGlobalIconUpload} />
           </div>
           <style>{`.icon-lib-thumb svg { width: 100%; height: 100%; max-width: 100%; max-height: 100%; display: block; }`}</style>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-            {customIcons.length === 0 && (
-              <div style={{ color: "#9ca3af", fontSize: 12, padding: "8px 0" }}>No icons uploaded yet</div>
-            )}
-            {customIcons.map((ci, i) => (
-              <div key={i} title={ci.name}
-                onClick={iconDeleteMode ? async () => {
-                  await fetch(`/api/icons/${encodeURIComponent(ci.name)}`, { method: "DELETE" });
-                  setCustomIcons((prev) => prev.filter((_, j) => j !== i));
-                } : undefined}
-                style={{ width: 36, height: 36, border: "1px solid " + (iconDeleteMode ? "#ef4444" : "#3b82f6"), borderRadius: 6, background: iconDeleteMode ? "#fef2f2" : "#eff6ff", padding: 4, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", cursor: iconDeleteMode ? "pointer" : "default", opacity: iconDeleteMode ? 0.7 : 1 }}>
-                <div className="icon-lib-thumb" style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }} dangerouslySetInnerHTML={{ __html: ci.svg }} />
-              </div>
-            ))}
-          </div>
+          {customIcons.length === 0 && (
+            <div style={{ color: "#9ca3af", fontSize: 12, padding: "8px 0" }}>No icons uploaded yet</div>
+          )}
+          {customIcons.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {customIcons.map((ci, i) => {
+                const baseName = ci.name.replace(/\.[^.]+$/, "");
+                const currentTitle = iconTitleMap[baseName] ?? baseName.replace(/[-_]/g, " ").toUpperCase();
+                return (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    {/* Thumbnail */}
+                    <div
+                      onClick={iconDeleteMode ? async () => {
+                        await fetch(`/api/icons/${encodeURIComponent(ci.name)}`, { method: "DELETE" });
+                        setCustomIcons((prev) => prev.filter((_, j) => j !== i));
+                      } : undefined}
+                      title={iconDeleteMode ? `Delete ${ci.name}` : ci.name}
+                      style={{ width: 36, height: 36, flexShrink: 0, border: "1px solid " + (iconDeleteMode ? "#ef4444" : "#d1d5db"), borderRadius: 6, background: iconDeleteMode ? "#fef2f2" : "#eff6ff", padding: 4, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", cursor: iconDeleteMode ? "pointer" : "default", opacity: iconDeleteMode ? 0.8 : 1 }}>
+                      <div className="icon-lib-thumb" style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }} dangerouslySetInnerHTML={{ __html: ci.svg }} />
+                    </div>
+                    {/* Name + Title */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 10, color: "#9ca3af", marginBottom: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{baseName}</div>
+                      <input
+                        value={currentTitle}
+                        onChange={(e) => setIconTitleMap((prev) => ({ ...prev, [baseName]: e.target.value }))}
+                        placeholder="Title…"
+                        style={{ width: "100%", padding: "3px 6px", border: "1px solid #d1d5db", borderRadius: 5, fontSize: 12, boxSizing: "border-box", fontFamily: "inherit" }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Panels */}
@@ -1803,13 +2099,15 @@ ${code}
             <button onClick={() => {
               if (customIcons.length === 0) return;
               const arrowDirs = ["left", "right", "up-left", "up-right"];
-              const colors = COLOR_PALETTE.map(c => c.color);
-              const updatedPanels = sign.panels.map((p) => {
-                const icon = customIcons[Math.floor(Math.random() * customIcons.length)];
+              const colors = COLOR_PALETTE.map(c => c.color).filter(c => !Object.values(ICON_BG_RULES).includes(c));
+              // Shuffle icons so no icon repeats; cycle through if more panels than icons
+              const shuffled = [...customIcons].sort(() => Math.random() - 0.5);
+              const updatedPanels = sign.panels.map((p, i) => {
+                const icon = shuffled[i % shuffled.length];
                 const baseName = icon.name.replace(/\.\w+$/, "");
-                const text = ICON_TEXT_MAP[baseName] || baseName.replace(/[-_]/g, " ").toUpperCase();
+                const text = iconTitleMap[baseName] || baseName.replace(/[-_]/g, " ").toUpperCase();
                 const dir = arrowDirs[Math.floor(Math.random() * arrowDirs.length)];
-                const bgColor = colors[Math.floor(Math.random() * colors.length)];
+                const bgColor = ICON_BG_RULES[baseName] ?? colors[Math.floor(Math.random() * colors.length)];
                 return { ...p, customIcon: icon.svg, text, arrowDir: dir, bgColor };
               });
               updateSign({ panels: updatedPanels });
@@ -1841,6 +2139,7 @@ ${code}
               updateSign({ panels: updatedPanels });
             }}
             customIcons={customIcons}
+            iconTitleMap={iconTitleMap}
             fontFamily={sign.fontFamily}
             fontWeight={sign.fontWeight}
             fontStyle={sign.fontStyle}
@@ -1867,6 +2166,11 @@ ${code}
             <span style={{ fontSize: 12, color: "#9ca3af", background: "#f3f4f6", padding: "2px 8px", borderRadius: 4 }}>
               {(SIGN_RATIOS[sign.ratio] || SIGN_RATIOS["27:5"]).label}
             </span>
+            {selectedAspectLabel && (
+              <span style={{ fontSize: 12, color: "#1d4ed8", background: "#dbeafe", padding: "2px 8px", borderRadius: 4 }}>
+                Clicked: {selectedAspectLabel}
+              </span>
+            )}
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#6b7280", cursor: "pointer", userSelect: "none" }}>
@@ -1926,9 +2230,13 @@ ${code}
                             style={{ flex: 1, display: "flex", flexDirection: "column", gap: sign.gap, minWidth: 0, cursor: "grab", opacity: dragColIdx === colIdx ? 0.5 : 1, transition: "opacity 0.15s", outline: dragColIdx === colIdx ? "2px dashed #3b82f6" : "none", outlineOffset: -2 }}>
                             {colPanels.map(({ panel, flatIdx }) => (
                               <div key={panel.id} draggable onDragStart={(e) => handleDragStart(e, flatIdx)} onDragOver={(e) => handleDragOver(e, flatIdx)} onDragEnd={handleDragEnd}
-                                onClick={(e) => { e.stopPropagation(); setDragIdx(dragIdx === flatIdx ? null : flatIdx); }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setDragIdx(dragIdx === flatIdx ? null : flatIdx);
+                                  setSelectedAspectLabel(getPanelAspectLabel(sign, flatIdx));
+                                }}
                                 style={{ cursor: rowCount > 1 ? "grab" : "default", opacity: dragIdx === flatIdx ? 0.5 : 1, transition: "opacity 0.15s", minWidth: 0, minHeight: 0, overflow: "hidden", display: "flex", flex: 1 }}>
-                                <SignPanel panel={panel} isPreview fontFamily={sign.fontFamily} fontWeight={sign.fontWeight} fontStyle={sign.fontStyle} allCaps={sign.allCaps} arrowSize={sign.arrowSize} arrowFontFamily={arrowFontFamily} horizontal={(() => { const pl = panel.panelLayout && panel.panelLayout !== "auto" ? panel.panelLayout : (sign.panelLayout || "auto"); return pl === "horizontal" || (pl !== "vertical" && rowCount > 1); })()} iconScale={sign.iconScale} panelPadding={sign.panelPadding} debugSpacing={showDebugSpacing} />
+                                <SignPanel panel={panel} isPreview fontFamily={sign.fontFamily} fontWeight={sign.fontWeight} fontStyle={sign.fontStyle} allCaps={sign.allCaps} arrowSize={panel.arrowSize ?? sign.arrowSize} arrowFontFamily={arrowFontFamily} horizontal={(() => { const pl = panel.panelLayout && panel.panelLayout !== "auto" ? panel.panelLayout : (sign.panelLayout || "auto"); return pl === "horizontal" || (pl !== "vertical" && rowCount > 1); })()} iconScale={sign.iconScale} panelPadding={sign.panelPadding} debugSpacing={showDebugSpacing} />
                               </div>
                             ))}
                           </div>
@@ -1998,9 +2306,13 @@ ${code}
                               style={{ flex: 1, display: "flex", flexDirection: "column", gap: sign.gap, minWidth: 0, cursor: "grab", opacity: dragColIdx === colIdx ? 0.5 : 1, transition: "opacity 0.15s", outline: dragColIdx === colIdx ? "2px dashed #3b82f6" : "none", outlineOffset: -2 }}>
                               {colPanels.map(({ panel, flatIdx }) => (
                                 <div key={panel.id} draggable onDragStart={(e) => handleDragStart(e, flatIdx)} onDragOver={(e) => handleDragOver(e, flatIdx)} onDragEnd={handleDragEnd}
-                                  onClick={(e) => { e.stopPropagation(); setDragIdx(dragIdx === flatIdx ? null : flatIdx); }}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setDragIdx(dragIdx === flatIdx ? null : flatIdx);
+                                    setSelectedAspectLabel(getPanelAspectLabel(sign, flatIdx));
+                                  }}
                                   style={{ cursor: rowCount > 1 ? "grab" : "default", opacity: dragIdx === flatIdx ? 0.5 : 1, transition: "opacity 0.15s", minWidth: 0, minHeight: 0, overflow: "hidden", display: "flex", flex: 1 }}>
-                                  <SignPanel panel={panel} isPreview fontFamily={sign.fontFamily} fontWeight={sign.fontWeight} fontStyle={sign.fontStyle} allCaps={sign.allCaps} arrowSize={sign.arrowSize} arrowFontFamily={arrowFontFamily} horizontal={(() => { const pl = panel.panelLayout && panel.panelLayout !== "auto" ? panel.panelLayout : (sign.panelLayout || "auto"); return pl === "horizontal" || (pl !== "vertical" && rowCount > 1); })()} iconScale={sign.iconScale} panelPadding={sign.panelPadding} debugSpacing={showDebugSpacing} />
+                                  <SignPanel panel={panel} isPreview fontFamily={sign.fontFamily} fontWeight={sign.fontWeight} fontStyle={sign.fontStyle} allCaps={sign.allCaps} arrowSize={panel.arrowSize ?? sign.arrowSize} arrowFontFamily={arrowFontFamily} horizontal={(() => { const pl = panel.panelLayout && panel.panelLayout !== "auto" ? panel.panelLayout : (sign.panelLayout || "auto"); return pl === "horizontal" || (pl !== "vertical" && rowCount > 1); })()} iconScale={sign.iconScale} panelPadding={sign.panelPadding} debugSpacing={showDebugSpacing} />
                                 </div>
                               ))}
                             </div>

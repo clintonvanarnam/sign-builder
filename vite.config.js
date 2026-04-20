@@ -147,7 +147,46 @@ function fontApiPlugin() {
   }
 }
 
+function iconTitlesPlugin() {
+  const titlesFile = path.resolve('public/icon-titles.json')
+
+  return {
+    name: 'icon-titles-api',
+    configureServer(server) {
+      // GET /icon-titles.json — served as static file, but also handle explicit route
+      server.middlewares.use('/api/icon-titles', (req, res, next) => {
+        if (req.method === 'POST') {
+          const chunks = []
+          req.on('data', chunk => chunks.push(chunk))
+          req.on('end', () => {
+            try {
+              const body = JSON.parse(Buffer.concat(chunks).toString())
+              fs.writeFileSync(titlesFile, JSON.stringify(body, null, 2))
+              res.setHeader('Content-Type', 'application/json')
+              res.end(JSON.stringify({ ok: true }))
+            } catch {
+              res.statusCode = 400
+              res.end(JSON.stringify({ error: 'invalid request' }))
+            }
+          })
+          return
+        }
+        next()
+      })
+    },
+    generateBundle() {
+      if (fs.existsSync(titlesFile)) {
+        this.emitFile({
+          type: 'asset',
+          fileName: 'icon-titles.json',
+          source: fs.readFileSync(titlesFile, 'utf-8'),
+        })
+      }
+    },
+  }
+}
+
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react(), iconApiPlugin(), fontApiPlugin()],
+  plugins: [react(), iconApiPlugin(), fontApiPlugin(), iconTitlesPlugin()],
 })
