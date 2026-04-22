@@ -209,6 +209,11 @@ const ICON_TEXT_MAP = {
   "ObservationDeck": "OBSERVATION DECK",
 };
 
+// Icons that suppress secondary typeface (all lines use primary font)
+const NO_SECONDARY_ICONS = new Set([
+  "Agency", "Capitol", "Corning", "Egg", "Legislative", "Museum", "ObservationDeck",
+]);
+
 // Icons that always get a specific background color (overrides random & manual)
 const ICON_BG_RULES = {
   "Restroom": "#c4dae8",
@@ -446,6 +451,42 @@ function parseFontName(fileName) {
   return { family, variant: label, weight, style };
 }
 
+function getCustomFontFamilies(customFonts) {
+  const families = {};
+  customFonts.forEach((font) => {
+    const family = font.family || font.name;
+    if (!families[family]) families[family] = [];
+    families[family].push(font);
+  });
+  Object.values(families).forEach((variants) => {
+    variants.sort((a, b) => {
+      if (a.weight !== b.weight) return a.weight - b.weight;
+      return (a.fontStyle === 'italic' ? 1 : 0) - (b.fontStyle === 'italic' ? 1 : 0);
+    });
+  });
+  return families;
+}
+
+function getTypefaceSelectValue(selectedTypeface, customFonts) {
+  const currentFont = customFonts.find((font) => font.faceName === selectedTypeface);
+  return currentFont ? currentFont.family : selectedTypeface;
+}
+
+function resolveTypefaceSelection(selection, customFonts) {
+  const families = getCustomFontFamilies(customFonts);
+  const variants = families[selection];
+  if (variants && variants.length > 0) {
+    const regular = variants.find((variant) => variant.fontStyle !== 'italic') || variants[0];
+    return regular.faceName;
+  }
+  return selection;
+}
+
+function resolveCssFontFamily(typeface, fallback = DEFAULT_FONT) {
+  if (!typeface) return fallback;
+  return typeface.includes("__") ? `'${typeface}'` : typeface;
+}
+
 function createDefaultSign(ratio = "27:5") {
   const baseDefaults = getDefaults(ratio);
   const colRows = baseDefaults.columnRows || [1, 1, 1];
@@ -457,8 +498,12 @@ function createDefaultSign(ratio = "27:5") {
     name: "Sign Assembly",
     ratio,
     fontFamily: defaults.fontFamily || DEFAULT_FONT,
+    secondaryFontFamily: defaults.secondaryFontFamily || defaults.fontFamily || DEFAULT_FONT,
+    arrowTypeface: defaults.arrowTypeface || null,
     fontWeight: defaults.fontWeight ?? 700,
     fontStyle: defaults.fontStyle || "normal",
+    secondaryFontWeight: defaults.secondaryFontWeight ?? 700,
+    secondaryFontStyle: defaults.secondaryFontStyle || "normal",
     allCaps: defaults.allCaps ?? true,
     arrowSize: defaults.arrowSize,
     arrowWeight: defaults.arrowWeight || 400,
@@ -568,15 +613,12 @@ function PanelIcon({ panel, iconScale = 0.65, maxHeight = "85%" }) {
 }
 
 /* ── Single Panel Render ── */
-function SignPanel({ panel, isPreview = false, fontFamily, fontWeight = 700, fontStyle = "normal", allCaps = true, arrowSize = 20, arrowFontFamily, horizontal = false, iconScale = 0.65, panelPadding = 0, debugSpacing = false }) {
+function SignPanel({ panel, isPreview = false, fontFamily, secondaryFontFamily, fontWeight = 700, fontStyle = "normal", secondaryFontWeight = 700, secondaryFontStyle = "normal", allCaps = true, arrowSize = 20, arrowFontFamily, horizontal = false, iconScale = 0.65, panelPadding = 0, debugSpacing = false }) {
   const lines = panel.text.split("\n");
   // Wrap custom face names in quotes for CSS; default fonts already have proper format
-  const resolvedFont = fontFamily
-    ? (fontFamily.includes("__") ? `'${fontFamily}'` : fontFamily)
-    : DEFAULT_FONT;
-  const resolvedArrowFont = arrowFontFamily
-    ? (arrowFontFamily.includes("__") ? `'${arrowFontFamily}'` : arrowFontFamily)
-    : resolvedFont;
+  const resolvedFont = resolveCssFontFamily(fontFamily, DEFAULT_FONT);
+  const resolvedSecondaryFont = resolveCssFontFamily(secondaryFontFamily || fontFamily, resolvedFont);
+  const resolvedArrowFont = resolveCssFontFamily(arrowFontFamily, resolvedFont);
 
   const panelWithFont = { ...panel, _fontWeight: fontWeight, _fontStyle: fontStyle };
 
@@ -632,7 +674,10 @@ function SignPanel({ panel, isPreview = false, fontFamily, fontWeight = 700, fon
           color: panel.textColor, textAlign: "left", lineHeight: 1.15,
           letterSpacing: "0.05em", textTransform: allCaps ? "uppercase" : "none",
         }}>
-          {lines.map((l, i) => <div key={i} data-export={isPreview ? "text-line" : undefined}>{l}</div>)}
+          {lines.map((l, i) => {
+            const usePrimary = NO_SECONDARY_ICONS.has(panel.iconName);
+            return <div key={i} data-export={isPreview ? "text-line" : undefined} style={{ fontFamily: usePrimary ? resolvedFont : resolvedSecondaryFont, fontWeight: usePrimary ? (panelWithFont._fontWeight || 700) : secondaryFontWeight, fontStyle: usePrimary ? (panelWithFont._fontStyle || "normal") : secondaryFontStyle }}>{l}</div>;
+          })}
         </div>
       </div>
     );
@@ -683,14 +728,17 @@ function SignPanel({ panel, isPreview = false, fontFamily, fontWeight = 700, fon
           letterSpacing: "0.05em", textTransform: allCaps ? "uppercase" : "none",
           boxSizing: "border-box",
         }}>
-          {lines.map((l, i) => <div key={i} data-export={isPreview ? "text-line" : undefined}>{l}</div>)}
+          {lines.map((l, i) => {
+            const usePrimary = NO_SECONDARY_ICONS.has(panel.iconName);
+            return <div key={i} data-export={isPreview ? "text-line" : undefined} style={{ fontFamily: usePrimary ? resolvedFont : resolvedSecondaryFont, fontWeight: usePrimary ? (panelWithFont._fontWeight || 700) : secondaryFontWeight, fontStyle: usePrimary ? (panelWithFont._fontStyle || "normal") : secondaryFontStyle }}>{l}</div>;
+          })}
         </div>
     </div>
   );
 }
 
 /* ── Panel Editor ── */
-function PanelEditor({ panel, onChange, onRemove, onDuplicate, onLayoutChange, customIcons, iconTitleMap, fontFamily, fontWeight, fontStyle, allCaps, arrowSize, arrowFontFamily, rows, iconScale, panelLayout, ratio }) {
+function PanelEditor({ panel, onChange, onRemove, onDuplicate, onLayoutChange, customIcons, iconTitleMap, fontFamily, secondaryFontFamily, fontWeight, fontStyle, secondaryFontWeight, secondaryFontStyle, allCaps, arrowSize, arrowFontFamily, rows, iconScale, panelLayout, ratio }) {
   const fileRef = useRef();
 
   const set = (key, val) => onChange({ ...panel, [key]: val });
@@ -749,10 +797,10 @@ function PanelEditor({ panel, onChange, onRemove, onDuplicate, onLayoutChange, c
                 const baseName = icon.name.replace(/\.[^.]+$/, "");
                 const autoText = (iconTitleMap || ICON_TEXT_MAP)[baseName] || baseName.replace(/[-_]/g, " ").toUpperCase();
                 const forcedBg = ICON_BG_RULES[baseName];
-                onChange({ ...panel, customIcon: icon.svg, text: autoText, ...(forcedBg ? { bgColor: forcedBg } : {}) });
+                onChange({ ...panel, customIcon: icon.svg, iconName: baseName, text: autoText, ...(forcedBg ? { bgColor: forcedBg } : {}) });
                 return;
               }
-              if (e.target.value === "") { onChange({ ...panel, icon: null, customIcon: null }); }
+              if (e.target.value === "") { onChange({ ...panel, icon: null, customIcon: null, iconName: null }); }
             }}
             style={inputStyle}>
             <option value="">None</option>
@@ -854,7 +902,7 @@ function PanelEditor({ panel, onChange, onRemove, onDuplicate, onLayoutChange, c
 
       {/* Mini preview */}
       <div style={{ marginTop: 6, border: "1px solid #e5e7eb", borderRadius: 6, overflow: "hidden" }}>
-        <SignPanel panel={panel} fontFamily={fontFamily} fontWeight={fontWeight} fontStyle={fontStyle} allCaps={allCaps} arrowSize={arrowSize} arrowFontFamily={arrowFontFamily} horizontal={(() => { const pl = panel.panelLayout && panel.panelLayout !== "auto" ? panel.panelLayout : panelLayout; return pl === "horizontal" || (pl !== "vertical" && rows > 1); })()} iconScale={iconScale} />
+        <SignPanel panel={panel} fontFamily={fontFamily} secondaryFontFamily={secondaryFontFamily} fontWeight={fontWeight} fontStyle={fontStyle} secondaryFontWeight={secondaryFontWeight} secondaryFontStyle={secondaryFontStyle} allCaps={allCaps} arrowSize={arrowSize} arrowFontFamily={arrowFontFamily} horizontal={(() => { const pl = panel.panelLayout && panel.panelLayout !== "auto" ? panel.panelLayout : panelLayout; return pl === "horizontal" || (pl !== "vertical" && rows > 1); })()} iconScale={iconScale} />
       </div>
     </div>
   );
@@ -893,6 +941,7 @@ async function exportSignToSVG(sign, customFonts, arrowFontFamily, containerEl) 
 
   // Resolve font names for SVG
   const fontFamily = sign.fontFamily || DEFAULT_FONT;
+  const secondaryFontFamily = sign.secondaryFontFamily || fontFamily;
   const resolvedFont = fontFamily.includes("__") ? fontFamily : fontFamily;
   const resolvedArrowFont = arrowFontFamily
     ? (arrowFontFamily.includes("__") ? arrowFontFamily : arrowFontFamily)
@@ -901,7 +950,7 @@ async function exportSignToSVG(sign, customFonts, arrowFontFamily, containerEl) 
   // Embed fonts as base64 @font-face
   let fontFaceRules = '';
   if (customFonts && customFonts.length > 0) {
-    const usedFaceNames = new Set([fontFamily]);
+    const usedFaceNames = new Set([fontFamily, secondaryFontFamily]);
     if (arrowFontFamily) usedFaceNames.add(arrowFontFamily);
     const usedFamilies = new Set();
     for (const fn of usedFaceNames) {
@@ -1027,11 +1076,11 @@ async function exportSignToSVG(sign, customFonts, arrowFontFamily, containerEl) 
       const lRect = lineEl.getBoundingClientRect();
       if (lRect.width === 0 && lRect.height === 0) return;
 
-      const parentStyle = getComputedStyle(lineEl.parentElement);
-      const fontSize = parseFloat(parentStyle.fontSize);
+      const lineStyle = getComputedStyle(lineEl);
+      const fontSize = parseFloat(lineStyle.fontSize);
       let text = lineEl.textContent || '';
       // textTransform is inherited from parent
-      const tt = parentStyle.textTransform;
+      const tt = lineStyle.textTransform;
       if (tt === 'uppercase') text = text.toUpperCase();
       else if (tt === 'lowercase') text = text.toLowerCase();
       if (!text.trim()) return;
@@ -1053,10 +1102,10 @@ async function exportSignToSVG(sign, customFonts, arrowFontFamily, containerEl) 
       const lx = (lRect.left - containerRect.left) * scale;
       const ly = ((textTop - containerRect.top) + ascent) * scale;
       const lfs = fontSize * scale;
-      const lls = (parseFloat(parentStyle.letterSpacing) || 0) * scale;
+      const lls = (parseFloat(lineStyle.letterSpacing) || 0) * scale;
 
       // Determine text alignment
-      const textAlign = parentStyle.textAlign;
+      const textAlign = lineStyle.textAlign;
       let anchor = 'start';
       let tx = lx;
       if (textAlign === 'center') {
@@ -1067,8 +1116,8 @@ async function exportSignToSVG(sign, customFonts, arrowFontFamily, containerEl) 
         tx = (lRect.left - containerRect.left + lRect.width) * scale;
       }
 
-      const svgFontFam = resolvedFont;
-      els += `<text x="${tx.toFixed(1)}" y="${ly.toFixed(1)}" font-family="'${svgFontFam}'" font-size="${lfs.toFixed(1)}" fill="${colorToHex(parentStyle.color)}" letter-spacing="${lls.toFixed(1)}" text-anchor="${anchor}">${esc(text)}</text>`;
+      const svgFontFam = (lineStyle.fontFamily || '').replace(/^['"]|['"]$/g, '') || resolvedFont;
+      els += `<text x="${tx.toFixed(1)}" y="${ly.toFixed(1)}" font-family="'${svgFontFam}'" font-size="${lfs.toFixed(1)}" fill="${colorToHex(lineStyle.color)}" letter-spacing="${lls.toFixed(1)}" text-anchor="${anchor}">${esc(text)}</text>`;
     });
 
     // Arrow — measure exact position
@@ -1189,11 +1238,12 @@ export default function SignBuilder() {
 
   const sign = signs[activeSignIdx];
 
-  // Resolve the arrow font: find the faceName in the same family matching arrowWeight
+  // Resolve the arrow font: use selected arrow typeface family, then match arrowWeight when possible.
   const arrowFontFamily = (() => {
-    if (!sign.fontFamily || !sign.fontFamily.includes('__')) return sign.fontFamily;
-    const currentFont = customFonts.find(f => f.faceName === sign.fontFamily);
-    if (!currentFont) return sign.fontFamily;
+    const arrowBaseTypeface = sign.arrowTypeface || sign.fontFamily;
+    if (!arrowBaseTypeface || !arrowBaseTypeface.includes('__')) return arrowBaseTypeface;
+    const currentFont = customFonts.find(f => f.faceName === arrowBaseTypeface);
+    if (!currentFont) return arrowBaseTypeface;
     const targetWeight = sign.arrowWeight || 400;
     // Find same family, same style, matching weight
     const match = customFonts.find(f =>
@@ -1201,7 +1251,7 @@ export default function SignBuilder() {
       f.fontStyle === currentFont.fontStyle &&
       f.weight === targetWeight
     );
-    return match ? match.faceName : sign.fontFamily;
+    return match ? match.faceName : arrowBaseTypeface;
   })();
 
   const updateSign = useCallback((updates) => {
@@ -1337,7 +1387,8 @@ export default function SignBuilder() {
       let fontCSS = '';
       if (customFonts.length > 0) {
         const fontFamily = sign.fontFamily || DEFAULT_FONT;
-        const usedFaceNames = new Set([fontFamily]);
+        const secondaryFontFamily = sign.secondaryFontFamily || fontFamily;
+        const usedFaceNames = new Set([fontFamily, secondaryFontFamily]);
         if (arrowFontFamily) usedFaceNames.add(arrowFontFamily);
         const usedFamilies = new Set();
         for (const fn of usedFaceNames) {
@@ -1497,6 +1548,7 @@ Empire State Plaza Sign Builder        </div>
                     gap: layoutDefaults.gap ?? sign.gap,
                     iconScale: layoutDefaults.iconScale ?? sign.iconScale,
                     fontFamily: layoutDefaults.fontFamily || sign.fontFamily,
+                    secondaryFontFamily: layoutDefaults.secondaryFontFamily || sign.secondaryFontFamily || layoutDefaults.fontFamily || sign.fontFamily,
                     fontWeight: layoutDefaults.fontWeight ?? sign.fontWeight,
                     fontStyle: layoutDefaults.fontStyle || sign.fontStyle,
                     allCaps: layoutDefaults.allCaps ?? sign.allCaps,
@@ -1759,31 +1811,15 @@ ${code}
             </button>
           </div>
           <div style={{ marginTop: 10 }}>
-            <label style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", display: "block", marginBottom: 4 }}>Font Family</label>
+            <label style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", display: "block", marginBottom: 4 }}>Primary Typeface</label>
             <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
               {(() => {
-                // Group custom fonts by family
-                const families = {};
-                customFonts.forEach((f) => {
-                  const fam = f.family || f.name;
-                  if (!families[fam]) families[fam] = [];
-                  families[fam].push(f);
-                });
-                // Sort each family's variants: weight asc, then normal before italic
-                Object.values(families).forEach((variants) => {
-                  variants.sort((a, b) => {
-                    if (a.weight !== b.weight) return a.weight - b.weight;
-                    return (a.fontStyle === 'italic' ? 1 : 0) - (b.fontStyle === 'italic' ? 1 : 0);
-                  });
-                });
+                const families = getCustomFontFamilies(customFonts);
                 const familyNames = Object.keys(families);
 
-                // Determine if current selection is a custom family
                 const currentFaceName = sign.fontFamily;
                 const currentFont = customFonts.find(f => f.faceName === currentFaceName);
                 const currentFamily = currentFont ? currentFont.family : null;
-                const isCustomFamily = !!currentFamily;
-                const variants = currentFamily ? (families[currentFamily] || []) : [];
 
                 return (
                   <>
@@ -1814,19 +1850,77 @@ ${code}
                 );
               })()}
             </div>
+            <div style={{ marginTop: 8 }}>
+              <label style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", display: "block", marginBottom: 4 }}>Secondary Typeface</label>
+              {(() => {
+                const families = getCustomFontFamilies(customFonts);
+                const familyNames = Object.keys(families);
+                const currentFont = customFonts.find(f => f.faceName === sign.secondaryFontFamily);
+                const currentFamily = currentFont ? currentFont.family : null;
+                const variants = currentFamily ? (families[currentFamily] || []) : [];
+                return (
+                  <>
+                    <select value={getTypefaceSelectValue(sign.secondaryFontFamily || sign.fontFamily, customFonts)} onChange={(e) => {
+                      const val = e.target.value;
+                      const fv = families[val];
+                      if (fv && fv.length > 0) {
+                        const regular = fv.find(v => v.fontStyle !== 'italic') || fv[0];
+                        updateSign({ secondaryFontFamily: regular.faceName, secondaryFontWeight: regular.weight, secondaryFontStyle: regular.fontStyle || 'normal' });
+                      } else {
+                        updateSign({ secondaryFontFamily: val, secondaryFontWeight: 700, secondaryFontStyle: "normal" });
+                      }
+                    }}
+                      style={{ width: "100%", padding: "6px 8px", border: "1px solid #d1d5db", borderRadius: 6, fontSize: 13 }}>
+                      <option value={DEFAULT_FONT}>Helvetica Neue (Default)</option>
+                      <option value="Georgia, 'Times New Roman', serif">Georgia</option>
+                      <option value="'Courier New', Courier, monospace">Courier New</option>
+                      {familyNames.map((fam) => (
+                        <option key={fam} value={fam}>{fam}</option>
+                      ))}
+                    </select>
+                    {variants.length > 1 && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
+                        {variants.map((v) => {
+                          const isActive = sign.secondaryFontFamily === v.faceName;
+                          return (
+                            <button key={v.variant} onClick={() => updateSign({ secondaryFontFamily: v.faceName, secondaryFontWeight: v.weight, secondaryFontStyle: v.fontStyle || 'normal' })}
+                              style={{
+                                padding: "4px 10px", fontSize: 11, cursor: "pointer",
+                                border: isActive ? "2px solid #10b981" : "1px solid #d1d5db",
+                                borderRadius: 6, background: isActive ? "#ecfdf5" : "#fff",
+                                fontFamily: `'${v.faceName}'`,
+                                color: isActive ? "#10b981" : "#374151",
+                              }}>{v.variant}</button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
+            </div>
+            <div style={{ marginTop: 8 }}>
+              <label style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", display: "block", marginBottom: 4 }}>Arrow Typeface</label>
+              {(() => {
+                const families = getCustomFontFamilies(customFonts);
+                const familyNames = Object.keys(families);
+                return (
+                  <select value={getTypefaceSelectValue(sign.arrowTypeface || sign.fontFamily, customFonts)} onChange={(e) => {
+                    updateSign({ arrowTypeface: resolveTypefaceSelection(e.target.value, customFonts) });
+                  }}
+                    style={{ width: "100%", padding: "6px 8px", border: "1px solid #d1d5db", borderRadius: 6, fontSize: 13 }}>
+                    <option value={DEFAULT_FONT}>Helvetica Neue (Default)</option>
+                    <option value="Georgia, 'Times New Roman', serif">Georgia</option>
+                    <option value="'Courier New', Courier, monospace">Courier New</option>
+                    {familyNames.map((fam) => (
+                      <option key={fam} value={fam}>{fam}</option>
+                    ))}
+                  </select>
+                );
+              })()}
+            </div>
             {(() => {
-              const families = {};
-              customFonts.forEach((f) => {
-                const fam = f.family || f.name;
-                if (!families[fam]) families[fam] = [];
-                families[fam].push(f);
-              });
-              Object.values(families).forEach((variants) => {
-                variants.sort((a, b) => {
-                  if (a.weight !== b.weight) return a.weight - b.weight;
-                  return (a.fontStyle === 'italic' ? 1 : 0) - (b.fontStyle === 'italic' ? 1 : 0);
-                });
-              });
+              const families = getCustomFontFamilies(customFonts);
               const currentFont = customFonts.find(f => f.faceName === sign.fontFamily);
               const currentFamily = currentFont ? currentFont.family : null;
               const variants = currentFamily ? (families[currentFamily] || []) : [];
@@ -1855,9 +1949,11 @@ ${code}
               }
               return null;
             })()}
-            {sign.fontFamily !== DEFAULT_FONT && (
-              <div style={{ marginTop: 6, padding: "6px 10px", background: "#f3f4f6", borderRadius: 6, fontFamily: sign.fontFamily.includes("__") ? `'${sign.fontFamily}'` : sign.fontFamily, fontSize: 14, textTransform: sign.allCaps ? "uppercase" : "none", letterSpacing: "0.05em" }}>
-                PREVIEW TEXT
+            {(sign.fontFamily !== DEFAULT_FONT || (sign.secondaryFontFamily && sign.secondaryFontFamily !== sign.fontFamily) || sign.arrowTypeface) && (
+              <div style={{ marginTop: 6, padding: "6px 10px", background: "#f3f4f6", borderRadius: 6, display: "flex", flexDirection: "column", gap: 4, fontSize: 14, textTransform: sign.allCaps ? "uppercase" : "none", letterSpacing: "0.05em" }}>
+                <div style={{ fontFamily: resolveCssFontFamily(sign.fontFamily, DEFAULT_FONT), fontWeight: sign.fontWeight || 700, fontStyle: sign.fontStyle || "normal" }}>PRIMARY TEXT</div>
+                <div style={{ fontFamily: resolveCssFontFamily(sign.secondaryFontFamily || sign.fontFamily, DEFAULT_FONT), fontWeight: sign.secondaryFontWeight || 700, fontStyle: sign.secondaryFontStyle || "normal" }}>SECONDARY TEXT</div>
+                <div style={{ fontFamily: resolveCssFontFamily(arrowFontFamily, DEFAULT_FONT) }}>{ARROW_CHARS.up} {ARROW_CHARS.right} {ARROW_CHARS.down}</div>
               </div>
             )}
             <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}>
@@ -2108,7 +2204,7 @@ ${code}
                 const text = iconTitleMap[baseName] || baseName.replace(/[-_]/g, " ").toUpperCase();
                 const dir = arrowDirs[Math.floor(Math.random() * arrowDirs.length)];
                 const bgColor = ICON_BG_RULES[baseName] ?? colors[Math.floor(Math.random() * colors.length)];
-                return { ...p, customIcon: icon.svg, text, arrowDir: dir, bgColor };
+                return { ...p, customIcon: icon.svg, iconName: baseName, text, arrowDir: dir, bgColor };
               });
               updateSign({ panels: updatedPanels });
             }}
@@ -2141,8 +2237,11 @@ ${code}
             customIcons={customIcons}
             iconTitleMap={iconTitleMap}
             fontFamily={sign.fontFamily}
+            secondaryFontFamily={sign.secondaryFontFamily}
             fontWeight={sign.fontWeight}
             fontStyle={sign.fontStyle}
+            secondaryFontWeight={sign.secondaryFontWeight ?? 700}
+            secondaryFontStyle={sign.secondaryFontStyle || "normal"}
             allCaps={sign.allCaps}
             arrowSize={sign.arrowSize}
             arrowFontFamily={arrowFontFamily}
@@ -2236,7 +2335,7 @@ ${code}
                                   setSelectedAspectLabel(getPanelAspectLabel(sign, flatIdx));
                                 }}
                                 style={{ cursor: rowCount > 1 ? "grab" : "default", opacity: dragIdx === flatIdx ? 0.5 : 1, transition: "opacity 0.15s", minWidth: 0, minHeight: 0, overflow: "hidden", display: "flex", flex: 1 }}>
-                                <SignPanel panel={panel} isPreview fontFamily={sign.fontFamily} fontWeight={sign.fontWeight} fontStyle={sign.fontStyle} allCaps={sign.allCaps} arrowSize={panel.arrowSize ?? sign.arrowSize} arrowFontFamily={arrowFontFamily} horizontal={(() => { const pl = panel.panelLayout && panel.panelLayout !== "auto" ? panel.panelLayout : (sign.panelLayout || "auto"); return pl === "horizontal" || (pl !== "vertical" && rowCount > 1); })()} iconScale={sign.iconScale} panelPadding={sign.panelPadding} debugSpacing={showDebugSpacing} />
+                                <SignPanel panel={panel} isPreview fontFamily={sign.fontFamily} secondaryFontFamily={sign.secondaryFontFamily} fontWeight={sign.fontWeight} fontStyle={sign.fontStyle} secondaryFontWeight={sign.secondaryFontWeight ?? 700} secondaryFontStyle={sign.secondaryFontStyle || "normal"} allCaps={sign.allCaps} arrowSize={panel.arrowSize ?? sign.arrowSize} arrowFontFamily={arrowFontFamily} horizontal={(() => { const pl = panel.panelLayout && panel.panelLayout !== "auto" ? panel.panelLayout : (sign.panelLayout || "auto"); return pl === "horizontal" || (pl !== "vertical" && rowCount > 1); })()} iconScale={sign.iconScale} panelPadding={sign.panelPadding} debugSpacing={showDebugSpacing} />
                               </div>
                             ))}
                           </div>
@@ -2312,7 +2411,7 @@ ${code}
                                     setSelectedAspectLabel(getPanelAspectLabel(sign, flatIdx));
                                   }}
                                   style={{ cursor: rowCount > 1 ? "grab" : "default", opacity: dragIdx === flatIdx ? 0.5 : 1, transition: "opacity 0.15s", minWidth: 0, minHeight: 0, overflow: "hidden", display: "flex", flex: 1 }}>
-                                  <SignPanel panel={panel} isPreview fontFamily={sign.fontFamily} fontWeight={sign.fontWeight} fontStyle={sign.fontStyle} allCaps={sign.allCaps} arrowSize={panel.arrowSize ?? sign.arrowSize} arrowFontFamily={arrowFontFamily} horizontal={(() => { const pl = panel.panelLayout && panel.panelLayout !== "auto" ? panel.panelLayout : (sign.panelLayout || "auto"); return pl === "horizontal" || (pl !== "vertical" && rowCount > 1); })()} iconScale={sign.iconScale} panelPadding={sign.panelPadding} debugSpacing={showDebugSpacing} />
+                                  <SignPanel panel={panel} isPreview fontFamily={sign.fontFamily} secondaryFontFamily={sign.secondaryFontFamily} fontWeight={sign.fontWeight} fontStyle={sign.fontStyle} secondaryFontWeight={sign.secondaryFontWeight ?? 700} secondaryFontStyle={sign.secondaryFontStyle || "normal"} allCaps={sign.allCaps} arrowSize={panel.arrowSize ?? sign.arrowSize} arrowFontFamily={arrowFontFamily} horizontal={(() => { const pl = panel.panelLayout && panel.panelLayout !== "auto" ? panel.panelLayout : (sign.panelLayout || "auto"); return pl === "horizontal" || (pl !== "vertical" && rowCount > 1); })()} iconScale={sign.iconScale} panelPadding={sign.panelPadding} debugSpacing={showDebugSpacing} />
                                 </div>
                               ))}
                             </div>
